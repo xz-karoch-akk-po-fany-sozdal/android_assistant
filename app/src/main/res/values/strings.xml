@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ассистент</string>
+    <string name="service_label">Ассистент (жесты)</string>
+    <string name="service_description">Открывает ассистента свайпом из нижнего угла или долгим нажатием «Назад», читает текст с экрана для OCR и перевода. Данные не покидают устройство.</string>
+</resources>
