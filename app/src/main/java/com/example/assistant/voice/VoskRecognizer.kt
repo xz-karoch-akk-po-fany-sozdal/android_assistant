@@ -108,6 +108,8 @@ class VoskRecognizer(context: Context) {
         }.start()
     }
 
-    private fun parse(json: String?, key: String): String? =
-        try { JSONObject(json ?: return null).optString(key) } catch (_: Exception) { null }
+    private fun parse(json: String?, key: String): String? {
+        if (json == null) return null
+        return try { JSONObject(json).optString(key) } catch (_: Exception) { null }
+    }
 }
