@@ -64,7 +64,29 @@ jobs:
             echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
           fi
-          gradle --no-daemon assembleDebug assembleRelease -PocrMode="$OCR_MODE" --stacktrace
+          set -o pipefail
+          gradle --no-daemon --console=plain assembleDebug assembleRelease -PocrMode="$OCR_MODE" --stacktrace 2>&1 | tee build.log
+
+      - name: Show build errors
+        if: failure()
+        run: |
+          {
+            echo '## Build errors'
+            echo '```'
+            grep -nE "^e: |^w: .*error|error:|What went wrong|Could not|FAILED|Execution failed|not found|Unresolved|Duplicate" build.log | head -60 || true
+            echo '```'
+            echo '## Last 60 log lines'
+            echo '```'
+            tail -n 60 build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Collect APKs
         run: |
