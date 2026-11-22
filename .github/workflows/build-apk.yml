@@ -1,0 +1,99 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ocr_mode:
+        description: "OCR mode: unbundled (default) or bundled"
+        required: false
+        default: "unbundled"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OCR_MODE: ${{ github.event.inputs.ocr_mode || 'unbundled' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Download Vosk Russian model
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/assets
+          curl -fL --retry 5 --retry-delay 5 -o /tmp/vosk-ru.zip \
+            https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+          unzip -q /tmp/vosk-ru.zip -d /tmp/vosk-ru
+          rm -rf app/src/main/assets/model-ru
+          mv /tmp/vosk-ru/vosk-model-small-ru-0.22 app/src/main/assets/model-ru
+          test -f app/src/main/assets/model-ru/am/final.mdl
+          du -sh app/src/main/assets/model-ru
+          ls app/src/main/assets/model-ru
+
+      - name: Build debug and release
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          fi
+          gradle --no-daemon assembleDebug assembleRelease -PocrMode="$OCR_MODE" --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/*.apk dist/assistant-debug.apk
+          REL=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          if echo "$REL" | grep -q unsigned; then
+            cp "$REL" dist/assistant-release-unsigned.apk
+          else
+            cp "$REL" dist/assistant-release-signed.apk
+          fi
+          ls -lh dist
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-debug-apk
+          path: dist/assistant-debug.apk
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-release-apk
+          path: dist/assistant-release-*.apk
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
